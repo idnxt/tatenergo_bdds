@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+{% block title %}Отчёт {{ imp.period_from.strftime('%m.%Y') }} — tatenergo_bdds{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2>Отчёт за {{ imp.period_from.strftime('%B %Y') }}</h2>
+    <a href="/reports/" class="btn btn-outline-secondary btn-sm">← К списку</a>
+</div>
+
+{# Карточки-KPI #}
+<div class="row g-3 mb-4">
+    <div class="col-md-3">
+        <div class="card stat-card">
+            <div class="card-body">
+                <div class="text-muted small">Лицевых счетов</div>
+                <div class="fs-4 fw-bold">{{ "{:,}".format(imp.row_count or 0).replace(",", "\u00a0") }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card" style="border-left:4px solid #198754">
+            <div class="card-body">
+                <div class="text-muted small">Итого начислено</div>
+                <div class="fs-4 fw-bold">{{ "{:,.2f}".format(total).replace(",", "\u00a0") }} ₽</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card" style="border-left:4px solid #fd7e14">
+            <div class="card-body">
+                <div class="text-muted small">Регионов</div>
+                <div class="fs-4 fw-bold">{{ by_region|length }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card" style="border-left:4px solid {% if anomalies %}#dc3545{% else %}#6c757d{% endif %}">
+            <div class="card-body">
+                <div class="text-muted small">Тарифных аномалий</div>
+                <div class="fs-4 fw-bold {% if anomalies %}text-danger{% endif %}">{{ anomalies|length }}</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4 mb-4">
+    {# График по регионам #}
+    <div class="col-md-8">
+        <div class="card h-100">
+            <div class="card-header">Начисления по регионам (топ-20)</div>
+            <div class="card-body">
+                <canvas id="regionChart" height="120"></canvas>
+            </div>
+        </div>
+    </div>
+
+    {# Приборы учёта #}
+    <div class="col-md-4">
+        <div class="card h-100">
+            <div class="card-header">Приборы учёта по типам</div>
+            <div class="card-body p-0">
+                <table class="table table-sm mb-0">
+                    <thead><tr><th>Тип</th><th class="text-end">Кол-во</th></tr></thead>
+                    <tbody>
+                    {% for m in meter_stats %}
+                        <tr>
+                            <td>{{ m.meter_type_name }}</td>
+                            <td class="text-end">{{ "{:,}".format(m.count).replace(",", "\u00a0") }}</td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+{# Топ поставщиков #}
+<div class="card mb-4">
+    <div class="card-header">Топ-10 поставщиков по сумме начислений</div>
+    <div class="card-body p-0">
+        <table class="table table-hover mb-0">
+            <thead><tr><th>#</th><th>Поставщик</th><th class="text-end">Сумма, ₽</th><th class="text-end">Лицевых счетов</th></tr></thead>
+            <tbody>
+            {% for p in top_providers %}
+                <tr>
+                    <td class="text-muted">{{ loop.index }}</td>
+                    <td>{{ p.name }}</td>
+                    <td class="text-end">{{ "{:,.2f}".format(p.amount or 0).replace(",", "\u00a0") }}</td>
+                    <td class="text-end">{{ "{:,}".format(p.accounts).replace(",", "\u00a0") }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{# Таблица по регионам #}
+<div class="card mb-4">
+    <div class="card-header">Начисления по регионам</div>
+    <div class="card-body p-0">
+        <table class="table table-hover mb-0">
+            <thead><tr><th>Регион</th><th class="text-end">Лицевых счетов</th><th class="text-end">Сумма, ₽</th></tr></thead>
+            <tbody>
+            {% for r in by_region %}
+                <tr>
+                    <td>{{ r.region }}</td>
+                    <td class="text-end">{{ "{:,}".format(r.accounts).replace(",", "\u00a0") }}</td>
+                    <td class="text-end">{{ "{:,.2f}".format(r.amount or 0).replace(",", "\u00a0") }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{# Аномалии #}
+{% if anomalies %}
+<div class="card mb-4">
+    <div class="card-header text-danger">⚠ Тарифные аномалии ({{ anomalies|length }})</div>
+    <div class="card-body p-0">
+        <table class="table table-sm mb-0">
+            <thead>
+                <tr><th>Лицевой счёт</th><th>Регион</th><th>Прибор</th>
+                    <th class="text-end">Расход</th><th class="text-end">Тариф</th><th>Причина</th></tr>
+            </thead>
+            <tbody>
+            {% for tc, account_id, region in anomalies %}
+                <tr class="anomaly-row">
+                    <td>{{ account_id }}</td>
+                    <td>{{ region }}</td>
+                    <td>{{ tc.meter_number }}</td>
+                    <td class="text-end">{{ tc.consumption }}</td>
+                    <td class="text-end">{{ tc.tariff_calc }}</td>
+                    <td>{{ tc.anomaly_reason or '—' }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+<script>
+const ctx = document.getElementById('regionChart').getContext('2d');
+new Chart(ctx, {
+    type: 'bar',
+    data: {
+        labels: {{ chart_labels | tojson }},
+        datasets: [{
+            label: 'Начислено, ₽',
+            data: {{ chart_amounts | tojson }},
+            backgroundColor: 'rgba(13, 110, 253, 0.7)',
+            borderColor: 'rgba(13, 110, 253, 1)',
+            borderWidth: 1,
+        }]
+    },
+    options: {
+        responsive: true,
+        plugins: { legend: { display: false } },
+        scales: {
+            y: { ticks: { callback: v => (v/1e6).toFixed(1) + ' млн' } }
+        }
+    }
+});
+</script>
+{% endblock %}

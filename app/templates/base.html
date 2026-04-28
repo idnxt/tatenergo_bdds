@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}tatenergo_bdds{% endblock %}</title>
+    <link rel="stylesheet"
+          href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        body { background: #f8f9fa; }
+        .navbar-brand { font-weight: 700; letter-spacing: 1px; }
+        .sidebar { min-height: calc(100vh - 56px); background: #fff;
+                   border-right: 1px solid #dee2e6; padding-top: 1rem; }
+        .main-content { padding: 2rem; }
+        .stat-card { border-left: 4px solid #0d6efd; }
+        .anomaly-row { background: #fff3cd; }
+    </style>
+</head>
+<body>
+
+<nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+    <div class="container-fluid">
+        <a class="navbar-brand" href="/">⚡ tatenergo_bdds</a>
+        <div class="navbar-nav ms-auto">
+            <a class="nav-link" href="/">Главная</a>
+            <a class="nav-link" href="/import/">Импорт</a>
+            <a class="nav-link" href="/reports/">Отчёты</a>
+        </div>
+    </div>
+</nav>
+
+<div class="container-fluid">
+    <div class="row">
+        <main class="col main-content">
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+</div>
+
+</body>
+</html>

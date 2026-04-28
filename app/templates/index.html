@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Главная — tatenergo_bdds{% endblock %}
+
+{% block content %}
+<h2 class="mb-4">Панель управления</h2>
+<div class="row g-3">
+    <div class="col-md-4">
+        <div class="card stat-card h-100">
+            <div class="card-body">
+                <h5 class="card-title">Импорт данных</h5>
+                <p class="card-text text-muted">Загрузить файл начислений за новый месяц</p>
+                <a href="/import/" class="btn btn-primary">Перейти к импорту</a>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card h-100" style="border-left: 4px solid #198754;">
+            <div class="card-body">
+                <h5 class="card-title">Отчёты</h5>
+                <p class="card-text text-muted">Аналитика по загруженным периодам</p>
+                <a href="/reports/" class="btn btn-success">Перейти к отчётам</a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

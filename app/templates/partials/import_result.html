@@ -1,0 +1,27 @@
+{% if result.success %}
+<div class="alert alert-success">
+    <h5 class="alert-heading">Import complete</h5>
+    <table class="table table-sm mb-2">
+        <tr><td>Period</td>
+            <td><strong>{{ result.period_from.strftime('%m.%Y') }}</strong></td></tr>
+        <tr><td>Rows loaded</td>
+            <td>{{ "{:,}".format(result.row_count).replace(",", "&nbsp;") }}</td></tr>
+        <tr><td>Parse errors</td>
+            <td>{% if result.error_count %}<span class="text-danger">{{ result.error_count }}</span>{% else %}0{% endif %}</td></tr>
+        <tr><td>Tariff rows calculated</td>
+            <td>{{ result.tariff_rows }}</td></tr>
+        <tr><td>Duration</td>
+            <td>{{ result.duration_sec }} sec</td></tr>
+        {% if result.filesum %}
+        <tr><td>File checksum</td>
+            <td>{{ result.filesum }}</td></tr>
+        {% endif %}
+    </table>
+    <a href="/reports/" class="btn btn-success btn-sm">View reports &rarr;</a>
+</div>
+{% else %}
+<div class="alert alert-danger">
+    <h5 class="alert-heading">Import error</h5>
+    <p class="mb-0">{{ result.error_message }}</p>
+</div>
+{% endif %}

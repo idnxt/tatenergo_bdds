@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Импорт — tatenergo_bdds{% endblock %}
+
+{% block content %}
+<h2 class="mb-4">Загрузка данных</h2>
+
+<div class="row">
+    <div class="col-md-6">
+        <div class="card mb-4">
+            <div class="card-header">Новый файл</div>
+            <div class="card-body">
+                <form hx-post="/import/upload"
+                      hx-target="#import-result"
+                      hx-swap="innerHTML"
+                      hx-encoding="multipart/form-data"
+                      hx-indicator="#spinner">
+                    <div class="mb-3">
+                        <label class="form-label">Файл начислений (ANSI, .txt)</label>
+                        <input type="file" name="file" class="form-control" accept=".txt,.csv" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary">
+                        <span id="spinner" class="spinner-border spinner-border-sm d-none me-2"
+                              role="status"></span>
+                        Загрузить
+                    </button>
+                </form>
+                <div id="import-result" class="mt-3"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">История импортов</div>
+            <div class="card-body p-0">
+                <table class="table table-sm table-hover mb-0">
+                    <thead>
+                        <tr>
+                            <th>Период</th>
+                            <th>Строк</th>
+                            <th>Ошибок</th>
+                            <th>Загружен</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for imp in history %}
+                        <tr>
+                            <td>{{ imp.period_from.strftime('%m.%Y') }}</td>
+                            <td>{{ "{:,}".format(imp.row_count or 0).replace(",", " ") }}</td>
+                            <td>{% if imp.error_count %}<span class="text-danger">{{ imp.error_count }}</span>{% else %}0{% endif %}</td>
+                            <td>{{ imp.loaded_at.strftime('%d.%m.%Y %H:%M') }}</td>
+                            <td><a href="/reports/summary/{{ imp.id }}" class="btn btn-sm btn-outline-success">Отчёт</a></td>
+                        </tr>
+                    {% else %}
+                        <tr><td colspan="5" class="text-muted text-center py-3">Нет загруженных данных</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Показываем спиннер во время загрузки
+document.body.addEventListener('htmx:beforeRequest', function() {
+    document.getElementById('spinner').classList.remove('d-none');
+});
+document.body.addEventListener('htmx:afterRequest', function() {
+    document.getElementById('spinner').classList.add('d-none');
+});
+</script>
+{% endblock %}

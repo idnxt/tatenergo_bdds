@@ -1,0 +1,21 @@
+{% if result.success %}
+<div class="alert alert-success">
+    <h5>✅ Импорт завершён</h5>
+    <table class="table table-sm mb-0">
+        <tr><td>Период</td><td><strong>{{ result.period_from.strftime('%m.%Y') }}</strong></td></tr>
+        <tr><td>Строк загружено</td><td>{{ "{:,}".format(result.row_count).replace(",", " ") }}</td></tr>
+        <tr><td>Ошибок парсинга</td><td>{{ result.error_count }}</td></tr>
+        <tr><td>Расчёт тарифов</td><td>{{ result.tariff_rows }} записей</td></tr>
+        <tr><td>Время загрузки</td><td>{{ result.duration_sec }} сек</td></tr>
+        {% if result.filesum %}<tr><td>Контрольная сумма файла</td><td>{{ result.filesum }}</td></tr>{% endif %}
+    </table>
+    <a href="/reports/summary/{{ result.period_from }}" class="btn btn-success btn-sm mt-2">
+        Открыть отчёт →
+    </a>
+</div>
+{% else %}
+<div class="alert alert-danger">
+    <h5>❌ Ошибка импорта</h5>
+    <p class="mb-0">{{ result.error_message }}</p>
+</div>
+{% endif %}

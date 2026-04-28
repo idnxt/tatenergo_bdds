@@ -1,0 +1,9 @@
+pgsql/
+pgdata/
+venv/
+data/
+tmp/
+venv/
+__pycache__/
+*.pyc
+

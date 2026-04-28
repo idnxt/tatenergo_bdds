@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Импорт — tatenergo_bdds{% endblock %}
+
+{% block content %}
+<h2 class="mb-4">Загрузка данных</h2>
+
+<div class="row">
+    <div class="col-md-6">
+        <div class="card mb-4">
+            <div class="card-header">Новый файл</div>
+            <div class="card-body">
+                <form action="/import/upload" method="post" enctype="multipart/form-data"
+                      id="upload-form">
+                    <div class="mb-3">
+                        <label class="form-label">Файлы начислений (ANSI, .txt) — можно выбрать несколько</label>
+                        <input type="file" name="files" id="file-input"
+                               class="form-control" accept=".txt,.csv"
+                               multiple required>
+                        <div id="file-list" class="mt-2 small text-muted"></div>
+                    </div>
+                    <button type="submit" class="btn btn-primary" id="submit-btn">
+                        Загрузить в очередь
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">История импортов</div>
+            <div class="card-body p-0">
+                <table class="table table-sm table-hover mb-0">
+                    <thead>
+                        <tr>
+                            <th>Период</th>
+                            <th>Строк</th>
+                            <th>Ошибок</th>
+                            <th>Загружен</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for imp in history %}
+                        <tr>
+                            <td>{{ imp.period_from.strftime('%m.%Y') }}</td>
+                            <td>{{ "{:,}".format(imp.row_count or 0).replace(",", " ") }}</td>
+                            <td>{% if imp.error_count %}<span class="text-danger">{{ imp.error_count }}</span>{% else %}0{% endif %}</td>
+                            <td>{{ imp.loaded_at.strftime('%d.%m.%Y %H:%M') }}</td>
+                            <td><a href="/reports/summary/{{ imp.id }}" class="btn btn-sm btn-outline-success">Отчёт</a></td>
+                        </tr>
+                    {% else %}
+                        <tr><td colspan="5" class="text-muted text-center py-3">Нет загруженных данных</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.getElementById("file-input").addEventListener("change", function() {
+    var files = Array.from(this.files);
+    var list  = document.getElementById("file-list");
+    if (files.length === 0) { list.innerHTML = ""; return; }
+    var total = files.reduce(function(s, f) { return s + f.size; }, 0);
+    var mb    = (total / 1024 / 1024).toFixed(1);
+    list.innerHTML = "Выбрано файлов: <strong>" + files.length + "</strong>, "
+                   + "общий размер: <strong>" + mb + " МБ</strong><br>"
+                   + files.map(function(f) { return f.name; }).join(", ");
+});
+document.getElementById("upload-form").addEventListener("submit", function() {
+    document.getElementById("submit-btn").disabled = true;
+    document.getElementById("submit-btn").textContent = "Загрузка...";
+});
+</script>
+{% endblock %}
