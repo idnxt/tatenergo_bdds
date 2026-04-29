@@ -13,6 +13,7 @@ from app.config import APP_HOST, APP_PORT
 # Подключаем роуты модулей
 from app.modules.importer.router import router as importer_router
 from app.modules.reports.router  import router as reports_router
+from app.modules.reports.provider_router import router as provider_router
 
 BASE_DIR   = Path(__file__).resolve().parent
 templates  = Jinja2Templates(directory=str(BASE_DIR / "templates"))
@@ -26,6 +27,7 @@ app = FastAPI(
 
 app.include_router(importer_router, prefix="/import", tags=["import"])
 app.include_router(reports_router,  prefix="/reports", tags=["reports"])
+app.include_router(provider_router, prefix="/reports", tags=["reports"])
 
 
 @app.on_event("startup")

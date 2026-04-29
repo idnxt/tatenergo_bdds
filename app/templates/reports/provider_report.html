@@ -1,0 +1,415 @@
+{% extends "base.html" %}
+{% block title %}Отчёт по поставщику{% endblock %}
+
+{% block content %}
+<h2 class="mb-4">Отчёт по поставщику</h2>
+
+<div class="card mb-4">
+  <div class="card-body">
+    <form id="report-form" class="row g-3">
+      
+      <div class="col-md-4">
+        <label class="form-label">Поставщик(и)</label>
+        <div class="input-group">
+          <input 
+            type="text" 
+            id="provider-search" 
+            class="form-control" 
+            placeholder="Поиск поставщиков..."
+            autocomplete="off">
+        </div>
+        <div id="provider-list" class="border rounded mt-2 p-2" style="display:none; max-height: 300px; overflow-y: auto; background-color: #f9f9f9;">
+          <div class="mb-2">
+            <div class="form-check">
+              <input type="checkbox" id="provider-all" class="form-check-input">
+              <label class="form-check-label" for="provider-all">
+                <strong>Все поставщики</strong>
+              </label>
+            </div>
+          </div>
+          <div id="provider-items"></div>
+        </div>
+        <div id="selected-providers" class="mt-2 small text-muted" style="display:none;">
+          Выбрано: <span id="selected-count">0</span>
+        </div>
+        <input type="hidden" id="provider-ids-input" name="provider_ids" value="">
+      </div>
+
+      <div class="col-md-4">
+        <label class="form-label">Период от</label>
+        <select id="period-from" name="period_from" class="form-select">
+          {% for p in periods %}
+          <option value="{{ p.period_from.isoformat() }}" {% if p.period_from == period_from %}selected{% endif %}>
+            {{ p.period_from.strftime('%d.%m.%Y') }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="col-md-4">
+        <label class="form-label">Период до</label>
+        <select id="period-to" name="period_to" class="form-select">
+          {% for p in periods %}
+          <option value="{{ p.period_to.isoformat() }}" {% if p.period_to == period_to %}selected{% endif %}>
+            {{ p.period_to.strftime('%d.%m.%Y') }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="col-12">
+        <button type="submit" class="btn btn-primary">Построить отчёт</button>
+        <button type="button" id="clear-providers" class="btn btn-outline-secondary">Очистить выбор</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div id="report-container" style="display:none">
+
+  <div class="card mb-4">
+    <div class="card-body">
+      <h4 id="period-title" class="mb-3"></h4>
+      
+      <div class="row mb-4">
+        <div class="col-md-3">
+          <div class="text-center p-3 border rounded">
+            <div class="text-muted small">Всего</div>
+            <div class="h4" id="total-sum">—</div>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="text-center p-3 border rounded">
+            <div class="text-muted small">Средний месяц</div>
+            <div class="h4" id="avg-sum">—</div>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="text-center p-3 border rounded">
+            <div class="text-muted small">Тренд за период</div>
+            <div class="h4" id="period-trend">—</div>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="text-center p-3 border rounded">
+            <div class="text-muted small">Пер. мес-к-мес</div>
+            <div class="h4" id="last-mom">—</div>
+          </div>
+        </div>
+      </div>
+
+      <div id="chart-container" style="height: 400px;"></div>
+    </div>
+  </div>
+
+  <div class="card mb-4">
+    <div class="card-body">
+      <h5 class="mb-3">Статистика по месяцам</h5>
+      <div class="table-responsive">
+        <table class="table table-sm table-hover">
+          <thead>
+            <tr>
+              <th>Месяц</th>
+              <th class="text-end">Сумма</th>
+              <th class="text-end">Кол-во ЛС</th>
+              <th class="text-end">Сред. сумма</th>
+              <th class="text-end">% мес-к-мес</th>
+              <th class="text-end">% год-к-году</th>
+            </tr>
+          </thead>
+          <tbody id="stats-table"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div id="top20-container" style="display:none">
+    <div class="card mb-4">
+      <div class="card-body">
+        <h5 class="mb-3" id="top20-title">Топ-20 начислений</h5>
+        <div class="table-responsive">
+          <table class="table table-sm table-hover">
+            <thead id="top20-header"></thead>
+            <tbody id="top20-table"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// Providers list initialization
+let providers = {{ providers | tojson }};
+let selectedProviders = new Set();  // Set of selected provider IDs
+
+// Sort providers by name
+providers.sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+
+const searchInput = document.getElementById('provider-search');
+const providerList = document.getElementById('provider-list');
+const providerItems = document.getElementById('provider-items');
+const providerAllCheckbox = document.getElementById('provider-all');
+const selectedProvidersDiv = document.getElementById('selected-providers');
+const selectedCountSpan = document.getElementById('selected-count');
+const providerIdsInput = document.getElementById('provider-ids-input');
+const clearBtn = document.getElementById('clear-providers');
+
+// Show/hide provider list on input
+searchInput.addEventListener('focus', showProviderList);
+searchInput.addEventListener('input', filterProviders);
+
+// Close provider list when clicking outside
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.input-group') && !e.target.closest('#provider-list')) {
+    providerList.style.display = 'none';
+  }
+});
+
+// "All providers" checkbox
+providerAllCheckbox.addEventListener('change', (e) => {
+  if (e.target.checked) {
+    selectedProviders.clear();
+    updateAllCheckboxes();
+    updateSelectedDisplay();
+    providerList.style.display = 'none';
+  }
+});
+
+// Clear button
+clearBtn.addEventListener('click', () => {
+  selectedProviders.clear();
+  providerAllCheckbox.checked = false;
+  searchInput.value = '';
+  updateAllCheckboxes();
+  updateSelectedDisplay();
+  providerList.style.display = 'none';
+});
+
+function showProviderList() {
+  filterProviders();
+  providerList.style.display = 'block';
+}
+
+function filterProviders() {
+  const query = searchInput.value.toLowerCase().trim();
+  providerItems.innerHTML = '';
+  
+  const filtered = providers.filter(p => 
+    p.name.toLowerCase().includes(query) || 
+    p.id.toString().includes(query) ||
+    query === ''
+  );
+  
+  filtered.forEach(p => {
+    const div = document.createElement('div');
+    div.className = 'form-check';
+    div.innerHTML = `
+      <input 
+        type="checkbox" 
+        id="provider-${p.id}" 
+        class="form-check-input provider-checkbox"
+        data-id="${p.id}"
+        ${selectedProviders.has(p.id) ? 'checked' : ''}>
+      <label class="form-check-label" for="provider-${p.id}">
+        ${p.id}: ${p.name}
+      </label>
+    `;
+    providerItems.appendChild(div);
+    
+    // Add change listener
+    const checkbox = div.querySelector('input[type="checkbox"]');
+    checkbox.addEventListener('change', (e) => {
+      if (e.target.checked) {
+        selectedProviders.add(parseInt(p.id));
+        providerAllCheckbox.checked = false;
+      } else {
+        selectedProviders.delete(parseInt(p.id));
+      }
+      updateSelectedDisplay();
+    });
+  });
+}
+
+function updateAllCheckboxes() {
+  document.querySelectorAll('.provider-checkbox').forEach(cb => {
+    cb.checked = selectedProviders.has(parseInt(cb.dataset.id));
+  });
+}
+
+function updateSelectedDisplay() {
+  const count = selectedProviders.size;
+  if (count === 0 && !providerAllCheckbox.checked) {
+    selectedProvidersDiv.style.display = 'none';
+    providerIdsInput.value = '';
+  } else if (providerAllCheckbox.checked) {
+    selectedProvidersDiv.style.display = 'block';
+    selectedCountSpan.textContent = 'Все';
+    providerIdsInput.value = '';
+  } else {
+    selectedProvidersDiv.style.display = 'block';
+    selectedCountSpan.textContent = count;
+    providerIdsInput.value = Array.from(selectedProviders).join(',');
+  }
+}
+
+// Form submission
+document.getElementById('report-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  
+  const formData = new FormData(e.target);
+  const idsStr = formData.get('provider_ids');
+  
+  let providerIds = null;
+  if (idsStr && idsStr.trim() !== '') {
+    providerIds = idsStr.split(',').map(id => parseInt(id.trim()));
+  }
+  
+  const payload = {
+    provider_ids: providerIds,
+    period_from: formData.get('period_from'),
+    period_to: formData.get('period_to'),
+  };
+
+  console.log('Payload:', payload);
+
+  try {
+    const response = await fetch('/reports/provider/calculate.json', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    
+    const data = await response.json();
+    if (data.error) {
+      alert('Error: ' + data.error);
+      return;
+    }
+    
+    renderReport(data, providerIds);
+  } catch (err) {
+    alert('Error: ' + err.message);
+  }
+});
+
+function renderReport(data, provider_ids) {
+  document.getElementById('report-container').style.display = 'block';
+  document.getElementById('period-title').textContent = data.period_str;
+  
+  renderChart(data.chart_data);
+  renderStatsTable(data.stats_table);
+  renderKPIs(data.chart_data);
+  
+  // Show top-20 only if single provider selected
+  if (provider_ids && provider_ids.length === 1 && data.top_20) {
+    renderTop20(data.top_20, data.chart_data);
+  } else {
+    document.getElementById('top20-container').style.display = 'none';
+  }
+}
+
+function renderChart(chart_data) {
+  if (!chart_data || chart_data.length === 0) return;
+  
+  const trace = {
+    x: chart_data.map(d => d.month_str),
+    y: chart_data.map(d => d.sum),
+    type: 'bar',
+    marker: { color: '#0d6efd' },
+  };
+  
+  const layout = {
+    title: 'Начисления по месяцам',
+    xaxis: { title: 'Месяц' },
+    yaxis: { title: 'Сумма (руб.)' },
+    margin: { b: 100 },
+  };
+  
+  Plotly.newPlot('chart-container', [trace], layout, { responsive: true });
+}
+
+function renderStatsTable(stats_table) {
+  const tbody = document.getElementById('stats-table');
+  tbody.innerHTML = '';
+  
+  if (!stats_table || stats_table.length === 0) return;
+  
+  stats_table.forEach(row => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${row.month}</td>
+      <td class="text-end">${row.sum.toLocaleString('ru-RU', {minimumFractionDigits: 2})}</td>
+      <td class="text-end">${row.account_count}</td>
+      <td class="text-end">${row.avg_per_account.toLocaleString('ru-RU', {minimumFractionDigits: 2})}</td>
+      <td class="text-end">${row.pct_mom !== null ? (row.pct_mom > 0 ? '+' : '') + row.pct_mom.toFixed(1) + '%' : '—'}</td>
+      <td class="text-end">${row.pct_yoy !== null ? (row.pct_yoy > 0 ? '+' : '') + row.pct_yoy.toFixed(1) + '%' : '—'}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function renderKPIs(chart_data) {
+  if (!chart_data || chart_data.length === 0) return;
+  
+  const total = chart_data.reduce((sum, d) => sum + d.sum, 0);
+  const avg = total / chart_data.length;
+  const first = chart_data[0].sum;
+  const last = chart_data[chart_data.length - 1].sum;
+  const trend = first > 0 ? ((last - first) / first) * 100 : 0;
+  
+  let lastMoM = null;
+  if (chart_data.length >= 2) {
+    const prevSum = chart_data[chart_data.length - 2].sum;
+    lastMoM = prevSum > 0 ? ((last - prevSum) / prevSum) * 100 : 0;
+  }
+  
+  document.getElementById('total-sum').textContent = 
+    total.toLocaleString('ru-RU', {minimumFractionDigits: 2}) + ' ₽';
+  document.getElementById('avg-sum').textContent = 
+    avg.toLocaleString('ru-RU', {minimumFractionDigits: 2}) + ' ₽';
+  document.getElementById('period-trend').textContent = 
+    (trend > 0 ? '+' : '') + trend.toFixed(1) + '% ' + (trend > 0 ? '↑' : trend < 0 ? '↓' : '→');
+  document.getElementById('last-mom').textContent = 
+    lastMoM !== null ? ((lastMoM > 0 ? '+' : '') + lastMoM.toFixed(1) + '% ' + (lastMoM > 0 ? '↑' : lastMoM < 0 ? '↓' : '→')) : '—';
+}
+
+function renderTop20(top_20, chart_data) {
+  const container = document.getElementById('top20-container');
+  const header = document.getElementById('top20-header');
+  const tbody = document.getElementById('top20-table');
+  
+  container.style.display = 'block';
+  header.innerHTML = '';
+  tbody.innerHTML = '';
+  
+  if (!top_20 || top_20.length === 0) {
+    container.style.display = 'none';
+    return;
+  }
+  
+  const tr_header = document.createElement('tr');
+  tr_header.innerHTML = '<th>Лицевой счёт</th>';
+  
+  const first_row = top_20[0];
+  const period_cols = Object.keys(first_row).filter(k => k !== 'account_id').reverse();
+  period_cols.forEach(col => {
+    tr_header.innerHTML += `<th class="text-end">${col}</th>`;
+  });
+  header.appendChild(tr_header);
+  
+  top_20.forEach(row => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td><strong>${row.account_id}</strong></td>`;
+    
+    period_cols.forEach(col => {
+      const sum = row[col] || 0;
+      tr.innerHTML += `<td class="text-end">${sum.toLocaleString('ru-RU', {minimumFractionDigits: 2})}</td>`;
+    });
+    tbody.appendChild(tr);
+  });
+}
+</script>
+
+<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+{% endblock %}
