@@ -301,8 +301,8 @@ function renderReport(data, provider_ids) {
   renderStatsTable(data.stats_table);
   renderKPIs(data.chart_data);
   
-  // Show top-20 only if single provider selected
-  if (provider_ids && provider_ids.length === 1 && data.top_20) {
+  // Show top-20 if single provider or multiple providers selected
+  if (provider_ids && provider_ids.length > 0 && data.top_20) {
     renderTop20(data.top_20, data.chart_data);
   } else {
     document.getElementById('top20-container').style.display = 'none';
