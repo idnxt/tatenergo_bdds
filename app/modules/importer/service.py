@@ -44,7 +44,6 @@ COPY_NULL        = ''        # NULL в формате COPY TEXT (пустое п
 
 @dataclass
 class ParsedProvider:
-    provider_id: int
     name: str
     amount: str          # уже в виде строки для COPY ('\N' или '1234.56')
 
@@ -83,6 +82,21 @@ class ImportResult:
 
 
 # ─── Утилиты парсинга ────────────────────────────────────────────────────────
+
+def _copy_escape(s) -> str:
+    """Экранирует строку для PostgreSQL COPY TEXT формата."""
+    if s is None:
+        return '\\N'
+    s = str(s)
+    s = s.replace('\\', '\\\\')  # \ -> \
+    s = s.replace('\t', '\\t')      # tab -> 	
+    s = s.replace('\n', '\\n')      # newline -> 
+
+    s = s.replace('\r', '\\r')      # CR -> 
+    # Удаляем невалидные байты для UTF8
+    s = s.encode('utf-8', errors='ignore').decode('utf-8')
+    return s
+
 
 def _escape_copy(s: str) -> str:
     """Экранирование для формата COPY TEXT (tab-separated)."""
@@ -138,7 +152,6 @@ def _parse_oplata(raw: str) -> list:
             continue
         amount = _decimal_str(amount_s)  # может быть None
         result.append(ParsedProvider(
-            provider_id=pid,
             name=name.strip(),
             amount=amount,  # None вместо ''
         ))
@@ -372,7 +385,7 @@ class ImportService:
 
         all_rows: list = []
         regions: dict = {}
-        providers: dict = {}
+        providers: set = set()
 
         file_size = path.stat().st_size
         bytes_read = 0
@@ -388,7 +401,8 @@ class ImportService:
                 all_rows.append(row)
                 regions.setdefault(row.region, row.region)
                 for p in row.providers:
-                    providers[p.provider_id] = p.name
+                    if p.name.strip():
+                        providers.add(p.name.strip())
 
                 row_count += 1
                 if progress and row_count % 100000 == 0:
@@ -417,9 +431,13 @@ class ImportService:
                 """, list(regions.items()))
             if providers:
                 psycopg2.extras.execute_values(cur, """
-                    INSERT INTO providers (id, name) VALUES %s
-                    ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name
-                """, list(providers.items()))
+                    INSERT INTO providers (name) VALUES %s
+                    ON CONFLICT (name) DO NOTHING
+                """, [(name,) for name in providers])
+
+                # Строим карту name -> real db id
+                cur.execute("SELECT id, name FROM providers")
+                provider_name_to_id = {row[1]: row[0] for row in cur.fetchall()}
             conn.commit()
 
             # Вставка charges с RETURNING
@@ -482,7 +500,9 @@ class ImportService:
                 # Поставщики - преобразуем пустые строки в None
                 for p in row.providers:
                     amount = None if p.amount == '' or p.amount == COPY_NULL else p.amount
-                    cp_data.append((cid, p.provider_id, amount))
+                    real_pid = provider_name_to_id.get(p.name.strip())
+                    if real_pid is not None:
+                        cp_data.append((cid, real_pid, amount))
                 
                 # Приборы - аналогично, reading может быть пустым
                 for m in row.meters:
@@ -499,19 +519,30 @@ class ImportService:
             if cp_data:
                 if progress:
                     progress.update("copy_details", "Сохранение поставщиков...", 75)
-                psycopg2.extras.execute_values(cur, """
-                    INSERT INTO charge_providers (charge_id, provider_id, amount)
-                    VALUES %s ON CONFLICT DO NOTHING
-                """, cp_data, page_size=50000)
+                import io as _io
+                cp_buf = _io.StringIO()
+                for row in cp_data:
+                    charge_id, provider_id, amount = row
+                    amount_str = _copy_escape(amount)
+                    cp_buf.write(f"{charge_id}\t{provider_id}\t{amount_str}\n")
+                cp_buf.seek(0)
+                cur.copy_from(cp_buf, 'charge_providers',
+                              columns=('charge_id', 'provider_id', 'amount'))
 
-            # Массовая вставка приборов
+            # Массовая вставка приборов через COPY (быстрее execute_values в 3-5x)
             if mr_data:
                 if progress:
                     progress.update("copy_details", "Сохранение приборов учёта...", 78)
-                psycopg2.extras.execute_values(cur, """
-                    INSERT INTO meter_readings (charge_id, meter_type_id, meter_type_name, meter_number, reading)
-                    VALUES %s
-                """, mr_data, page_size=50000)
+                
+                import io
+                buf = io.StringIO()
+                for row in mr_data:
+                    charge_id, meter_type_id, meter_type_name, meter_number, reading = row
+                    reading_str = _copy_escape(reading)
+                    buf.write(f"{charge_id}\t{meter_type_id}\t{_copy_escape(meter_type_name)}\t{_copy_escape(meter_number)}\t{reading_str}\n")
+                buf.seek(0)
+                cur.copy_from(buf, 'meter_readings',
+                              columns=('charge_id', 'meter_type_id', 'meter_type_name', 'meter_number', 'reading'))
             
             conn.commit()
             

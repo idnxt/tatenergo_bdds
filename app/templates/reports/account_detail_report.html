@@ -1,0 +1,255 @@
+{% extends "base.html" %}
+{% block title %}Детализация по лицевому счету{% endblock %}
+
+{% block content %}
+<h2 class="mb-4">Детализация по лицевому счету</h2>
+
+<div class="card mb-4">
+  <div class="card-body">
+    <form id="account-form" class="row g-3">
+      <div class="col-md-8">
+        <label class="form-label">Лицевые счета (до 10 шт., через запятую)</label>
+        <input 
+          type="text" 
+          id="account-input" 
+          name="account_ids" 
+          class="form-control" 
+          placeholder="Пример: 1234567890, 1234567891, 1234567892"
+          autocomplete="off">
+        <small class="form-text text-muted">Каждый счёт — 10 цифр</small>
+      </div>
+      <div class="col-md-4 d-flex align-items-end">
+        <button type="submit" class="btn btn-primary w-100">Получить отчёт</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+
+
+<div id="report-container" style="display:none">
+  <div id="accounts-list"></div>
+</div>
+
+<script>
+document.getElementById('account-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const formData = new FormData(e.target);
+  const payload = { account_ids: formData.get('account_ids') };
+
+  try {
+    const response = await fetch('/reports/account-detail/calculate.json', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await response.json();
+    if (data.error) {
+      alert('Error: ' + data.error);
+      return;
+    }
+    renderReport(data);
+  } catch (err) {
+    alert('Error: ' + err.message);
+  }
+});
+
+function renderReport(data) {
+  if (data.error) {
+    alert('Error: ' + data.error);
+    return;
+  }
+
+  document.getElementById('report-container').style.display = 'block';
+  const accountsList = document.getElementById('accounts-list');
+  accountsList.innerHTML = '';
+  
+  data.accounts.forEach((account) => {
+    const accountDiv = document.createElement('div');
+    accountDiv.className = 'card mb-4';
+    
+    if (account.error) {
+      accountDiv.innerHTML = `
+        <div class="card-body">
+          <h5>ЛС: ${account.account_id}</h5>
+          <div class="alert alert-warning">${account.error}</div>
+        </div>
+      `;
+      accountsList.appendChild(accountDiv);
+      return;
+    }
+    
+    accountDiv.innerHTML = `
+      <div class="card-header">
+        <h5 class="mb-0">ЛС: ${account.account_id}</h5>
+        <small class="text-muted">${account.period_str}</small>
+      </div>
+      <div class="card-body">
+        <h6 class="mb-3">Начисления по периодам и поставщикам</h6>
+        <div class="table-responsive mb-4">
+          <table class="table table-sm table-hover">
+            <thead>
+              <tr>
+                <th>Период</th>
+                <th class="text-end">Всего</th>
+                <th class="text-end">% изм</th>
+                ${getBillingProviderHeaders(account.billing)}
+              </tr>
+            </thead>
+            <tbody>
+              ${getBillingRows(account.billing)}
+            </tbody>
+          </table>
+        </div>
+
+        <h6 class="mb-3">Приборы учета</h6>
+        <div class="table-responsive">
+          <table class="table table-sm table-hover">
+            ${getMetersTable(account.meters, account.billing)}
+          </table>
+        </div>
+      </div>
+    `;
+    
+    accountsList.appendChild(accountDiv);
+  });
+}
+
+function getBillingProviderHeaders(billing) {
+  if (!billing || billing.length === 0) return '';
+  const providers = new Set();
+  billing.forEach(row => {
+    Object.keys(row.providers).forEach(p => providers.add(p));
+  });
+  let headers = '';
+  providers.forEach(p => {
+    headers += `<th class="text-end">${p}</th><th class="text-end">% изм</th>`;
+  });
+  return headers;
+}
+
+function getBillingRows(billing) {
+  if (!billing || billing.length === 0) return '<tr><td colspan="10" class="text-center text-muted">Нет данных</td></tr>';
+  const providers = new Set();
+  billing.forEach(row => {
+    Object.keys(row.providers).forEach(p => providers.add(p));
+  });
+  const providerList = Array.from(providers).sort();
+  
+  return billing.map(row => {
+    let html = `
+      <tr ${row.is_year_total ? 'class="table-secondary font-weight-bold"' : ''}>
+        <td><strong>${row.period}</strong></td>
+        <td class="text-end"><strong>${row.total.toLocaleString('ru-RU', {minimumFractionDigits: 2})}</strong></td>
+        <td class="text-end"><strong>${row.total_pct !== null ? (row.total_pct > 0 ? '+' : '') + row.total_pct.toFixed(1) + '%' : '—'}</strong></td>
+    `;
+    providerList.forEach(provider => {
+      const p = row.providers[provider];
+      if (p) {
+        html += `
+          <td class="text-end">${p.amount.toLocaleString('ru-RU', {minimumFractionDigits: 2})}</td>
+          <td class="text-end">${p.pct !== null ? (p.pct > 0 ? '+' : '') + p.pct.toFixed(1) + '%' : '—'}</td>
+        `;
+      } else {
+        html += '<td class="text-end">—</td><td class="text-end">—</td>';
+      }
+    });
+    html += '</tr>';
+    return html;
+  }).join('');
+}
+
+function getMetersTable(metersData, billingData) {
+  if (!metersData || !metersData.readings || metersData.readings.length === 0) {
+    return '<tbody><tr><td colspan="100" class="text-center text-muted">Нет показаний</td></tr></tbody>';
+  }
+  
+  // Создаём карту ТАТЭНЕРГОСБЫТ начислений по периодам
+  const tatEnergoMap = {};
+  if (billingData && billingData.length > 0) {
+    // Ищем ключ поставщика динамически (избегаем проблем с кавычками)
+    const firstProviders = billingData.find(r => !r.is_year_total && r.providers)?.providers || {};
+    const tatKey = Object.keys(firstProviders).find(k => k.includes('ТАТЭНЕРГОСБЫТ'));
+    console.log('tatKey found:', tatKey);
+    console.log('firstProviders:', firstProviders);
+    
+    if (tatKey) {
+      billingData.forEach(billRow => {
+        if (!billRow.is_year_total && billRow.providers[tatKey]) {
+          tatEnergoMap[billRow.period] = billRow.providers[tatKey].amount;
+        }
+      });
+    }
+    console.log('tatEnergoMap:', tatEnergoMap);
+  }
+  
+  const elecMeters = metersData.electricity_meters || [];
+  const otherMeters = metersData.other_meters || [];
+  const allMeters = [...elecMeters, ...otherMeters];
+  
+  // Build header
+  let headers = '<thead><tr><th>Период</th>';
+  
+  if (elecMeters.length > 0) {
+    headers += '<th colspan="2" class="text-center" style="border-bottom: 2px solid #dee2e6;">Электроснабжение итог</th>';
+  }
+  
+  allMeters.forEach(m => {
+    const shortNum = m.number.slice(-4);
+    headers += `<th colspan="2" class="text-center" style="border-bottom: 2px solid #dee2e6;">${m.type} (${shortNum})</th>`;
+  });
+  
+  headers += '</tr><tr><th>Период</th>';
+  
+  if (elecMeters.length > 0) {
+    headers += '<th class="text-end" style="font-size: 0.85rem;">Тариф (расч.)</th><th class="text-end" style="font-size: 0.85rem;">% тариф</th>';
+  }
+  
+  allMeters.forEach(m => {
+    headers += '<th class="text-end" style="font-size: 0.85rem;">Показание</th><th class="text-end" style="font-size: 0.85rem;">Разница</th>';
+  });
+  
+  headers += '</tr></thead>';
+  
+  // Build rows
+  const tbody = '<tbody>' + metersData.readings.map(row => {
+    let html = `<tr><td><strong>${row.period}</strong></td>`;
+    
+    // Электроэнергия (итог) - считаем тариф в JS
+    if (elecMeters.length > 0) {
+      let tariffStr = '—';
+      const tatAmount = tatEnergoMap[row.period];
+      const diff = row.elec_total_diff;
+      if (tatAmount > 0 && diff > 0) {
+        tariffStr = (tatAmount / diff).toLocaleString('ru-RU', {minimumFractionDigits: 2}) + ' ₽';
+      }
+      html += `
+        <td class="text-end">${tariffStr}</td>
+        <td class="text-end">—</td>
+      `;
+    }
+    
+    // Все остальные счётчики
+    allMeters.forEach(m => {
+      const key = m.type + '||' + m.number;
+      const meterData = row.meters[key];
+      
+      if (meterData) {
+        html += `
+          <td class="text-end">${meterData.reading !== null ? meterData.reading.toLocaleString('ru-RU') : '—'}</td>
+          <td class="text-end">${meterData.diff !== null ? meterData.diff.toLocaleString('ru-RU', {minimumFractionDigits: 2}) : '—'}</td>
+        `;
+      } else {
+        html += '<td class="text-end">—</td><td class="text-end">—</td>';
+      }
+    });
+    
+    html += '</tr>';
+    return html;
+  }).join('') + '</tbody>';
+  
+  return headers + tbody;
+}
+</script>
+
+{% endblock %}

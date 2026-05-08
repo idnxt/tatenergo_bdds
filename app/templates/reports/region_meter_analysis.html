@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+{% block title %}Анализ счетчиков по региону{% endblock %}
+
+{% block content %}
+<h2 class="mb-4">Анализ счетчиков по региону</h2>
+
+<div class="card mb-4">
+  <div class="card-body">
+    <form id="analysis-form" class="row g-3">
+      <div class="col-md-4">
+        <label class="form-label">Регион</label>
+        <select id="region-select" name="region_code" class="form-select" required>
+          <option value="">Выберите регион</option>
+          {% for region in regions %}
+          <option value="{{ region.code }}">{{ region.name }} ({{ region.code }})</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Порог аномалии (%)</label>
+        <select id="threshold-select" name="anomaly_threshold" class="form-select">
+          <option value="40">40%</option>
+          <option value="50" selected>50%</option>
+          <option value="60">60%</option>
+          <option value="70">70%</option>
+          <option value="80">80%</option>
+          <option value="90">90%</option>
+          <option value="100">100%</option>
+        </select>
+      </div>
+      <div class="col-md-3 d-flex align-items-end">
+        <button type="submit" class="btn btn-primary w-100">Анализировать</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div id="results-container" style="display:none">
+  <div id="summary" class="mb-3"></div>
+  <div class="table-responsive">
+    <table id="results-table" class="table table-sm table-hover">
+      <thead>
+        <tr>
+          <th>ЛС/счетчик</th>
+          <th>Аномалий</th>
+          <th>Детали</th>
+        </tr>
+      </thead>
+      <tbody id="results-tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+document.getElementById('analysis-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const formData = new FormData(e.target);
+  const payload = {
+    region_code: formData.get('region_code'),
+    anomaly_threshold: parseInt(formData.get('anomaly_threshold'))
+  };
+
+  try {
+    const response = await fetch('/reports/region-meter-analysis/calculate.json', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await response.json();
+    if (data.error) {
+      alert('Error: ' + data.error);
+      return;
+    }
+    renderResults(data);
+  } catch (err) {
+    alert('Error: ' + err.message);
+  }
+});
+
+function renderResults(data) {
+  document.getElementById('results-container').style.display = 'block';
+  const summary = document.getElementById('summary');
+  summary.innerHTML = `
+    <div class="alert alert-info">
+      Регион: ${data.region_code}, порог: ${data.anomaly_threshold}%, 
+      проанализировано ЛС: ${data.total_accounts}, найдено аномалий: ${data.results.length}
+    </div>
+  `;
+  
+  const tbody = document.getElementById('results-tbody');
+  tbody.innerHTML = '';
+  
+  data.results.forEach(result => {
+    const meterLabel = result.meter_number ? `${result.meter_type} (${result.meter_number})` : result.meter_type;
+    const row = document.createElement('tr');
+    row.innerHTML = `
+      <td><strong>${result.account_id}/${meterLabel}</strong></td>
+      <td>${result.anomalies_count}</td>
+      <td>${formatPeriods(result.periods)}</td>
+    `;
+    tbody.appendChild(row);
+  });
+}
+
+function formatPeriods(periods) {
+  const anomaliesByYear = {};
+  periods.forEach(period => {
+    const [month, year] = period.split('.');
+    if (!anomaliesByYear[year]) {
+      anomaliesByYear[year] = new Set();
+    }
+    anomaliesByYear[year].add(month);
+  });
+
+  return Object.keys(anomaliesByYear)
+    .sort()
+    .map(year => {
+      const months = [];
+      for (let m = 1; m <= 12; m += 1) {
+        const mm = String(m).padStart(2, '0');
+        if (anomaliesByYear[year].has(mm)) {
+          months.push(`<span class="text-danger">${mm}</span>`);
+        } else {
+          months.push(mm);
+        }
+      }
+      return `${year}: ${months.join(' ')}`;
+    })
+    .join(' | ');
+}
+</script>
+
+{% endblock %}
